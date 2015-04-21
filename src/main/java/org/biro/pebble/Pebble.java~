@@ -94,6 +94,7 @@ public class Pebble {
         }
     };
 
+<<<<<<< HEAD
     private UUID mPebbleUUID;
     // Call this once immediately after create
     // to set the UUID and connect to the app.
@@ -181,6 +182,103 @@ public class Pebble {
     private PebbleKit.PebbleNackReceiver mPebbleNackReceiver;
 
     private PebbleKit.PebbleDataLogReceiver mPebbleLogReceiver;
+=======
+    private final static UUID PEBBLE_APP_UUID =
+                UUID.fromString("9312d524-6e77-47e4-96ed-e67bd11ce1d5");
+
+    private boolean started = false;
+    private boolean connected = false;
+
+    private PebbleReceiver mPebbleReceiver = new PebbleReceiver(this);
+
+    private PebbleKit.PebbleDataReceiver mPebbleDataReceiver =
+                new PebbleKit.PebbleDataReceiver(PEBBLE_APP_UUID) {
+        @Override
+        public void receiveData(Context ctx, int ptid, final PebbleDictionary pebbleDictionary) {
+            if (pebbleDictionary.contains(KEY_STATUS)) {
+                // It's a response to something we sent or a status message.
+                switch(pebbleDictionary.getUnsignedIntegerAsLong(KEY_STATUS).intValue()) {
+                    case STATUS_OK:
+                    case STATUS_ERR:
+                        if (!pebbleDictionary.contains(KEY_TRANSACTION_ID)) {
+                            Log.d(TAG, "Packet Without Transaction ID");
+                            nack(ctx, ptid);
+                            return;
+                        }
+                        ack(ctx, ptid);
+                        int tid = pebbleDictionary.getUnsignedIntegerAsLong(KEY_TRANSACTION_ID).intValue();
+                        PacketInfo info = getPebbleFinished(tid);
+                        removeInflight(tid);
+                        if (info != null && info.w != null) {
+                            info.w.processIncoming(ctx, tid, pebbleDictionary, info.data);
+                        }
+                        return;
+
+                    case STATUS_STARTED:
+                        started = true;
+                        ack(ctx, ptid);
+                        return;
+
+                    case STATUS_STOPPED:
+                        started = false;
+                        ack(ctx, ptid);
+                        return;
+
+                    default:
+                        nack(ctx, ptid);
+                        Log.e(TAG, "Unknown status in read: " + pebbleDictionary.getUnsignedIntegerAsLong(KEY_STATUS));
+                        return;
+                }
+            }
+        }
+    };
+
+    private void removeInflight(int tid) {
+        synchronized (inflight) {
+            inflight.delete(tid);
+        }
+    }
+
+    private PebbleKit.PebbleAckReceiver mPebbleAckReceiver =
+            new PebbleKit.PebbleAckReceiver(PEBBLE_APP_UUID) {
+        @Override
+        public void receiveAck(Context context, int i) {
+
+        }
+    };
+
+    private PebbleKit.PebbleNackReceiver mPebbleNackReceiver =
+            new PebbleKit.PebbleNackReceiver(PEBBLE_APP_UUID) {
+        @Override
+        public void receiveNack(Context context, int i) {
+
+        }
+    };
+
+    private PebbleKit.PebbleDataLogReceiver mPebbleLogReceiver =
+            new PebbleKit.PebbleDataLogReceiver(PEBBLE_APP_UUID) {
+        @Override
+        public void receiveData(Context context, UUID logUuid, Long timestamp, Long tag, Long data) {
+            super.receiveData(context, logUuid, timestamp, tag, data);
+        }
+
+        @Override
+        public void receiveData(Context context, UUID logUuid, Long timestamp, Long tag, byte[] data) {
+            super.receiveData(context, logUuid, timestamp, tag, data);
+        }
+
+        @Override
+        public void receiveData(Context context, UUID logUuid, Long timestamp, Long tag, int data) {
+            super.receiveData(context, logUuid, timestamp, tag, data);
+        }
+
+        @Override
+        public void onFinishSession(Context context, UUID logUuid, Long timestamp, Long tag) {
+            super.onFinishSession(context, logUuid, timestamp, tag);
+        }
+
+    };
+>>>>>>> 7d79562ab0aa76124ce0b78ca0688b24f5f365d6
 
     // My transaction id, not to be confused with the Pebble TID.
     static int transaction_id;
