@@ -217,21 +217,13 @@ public class Pebble {
             inflight.put(tid, new PacketInfo(w, data));
         }
 
-<<<<<<< HEAD
         PebbleKit.sendDataToPebbleWithTransactionId(ctx, mPebbleUUID,
-=======
-        PebbleKit.sendDataToPebbleWithTransactionId(ctx, PEBBLE_APP_UUID,
->>>>>>> 7d79562ab0aa76124ce0b78ca0688b24f5f365d6
                 data, tid);
     }
 
     private void resendMessage(Context ctx, int tid) {
         synchronized (inflight) {
-<<<<<<< HEAD
             PebbleKit.sendDataToPebbleWithTransactionId(ctx, mPebbleUUID,
-=======
-            PebbleKit.sendDataToPebbleWithTransactionId(ctx, PEBBLE_APP_UUID,
->>>>>>> 7d79562ab0aa76124ce0b78ca0688b24f5f365d6
                     inflight.get(tid).data, tid);
         }
     }
@@ -248,19 +240,11 @@ public class Pebble {
     }
 
     public void start(Context ctx) {
-<<<<<<< HEAD
         PebbleKit.startAppOnPebble(ctx, mPebbleUUID);
     }
 
     public void stop(Context ctx) {
         PebbleKit.closeAppOnPebble(ctx, mPebbleUUID);
-=======
-        PebbleKit.startAppOnPebble(ctx, PEBBLE_APP_UUID);
-    }
-
-    public void stop(Context ctx) {
-        PebbleKit.closeAppOnPebble(ctx, PEBBLE_APP_UUID);
->>>>>>> 7d79562ab0aa76124ce0b78ca0688b24f5f365d6
     }
 
     public boolean isBusy() {
