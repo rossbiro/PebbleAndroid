@@ -1,6 +1,7 @@
 package org.biro.pebble;
 
 import android.content.Context;
+import android.content.Intent;
 import android.util.Log;
 import android.util.SparseArray;
 
@@ -42,6 +43,7 @@ public class Pebble {
     public static final int FUNC_NEW_TEXT_LAYER = 2;
     public static final int FUNC_APPLY_ATTRIBUTES = 3;
     public static final int FUNC_PUSH_WINDOW = 4;
+    public static final int FUNC_REQUEST_CLICKS = 5;
 
     public static final int KEY_STATUS = 0;
     public static final int KEY_API_VERSION = 1;
@@ -57,6 +59,15 @@ public class Pebble {
     public static final int KEY_ATTRIBUTE_TEXT = 11;
     public static final int KEY_ATTRIBUTE_ALIGNMENT = 12;
     public static final int KEY_ATTRIBUTE_RECT = 13;
+    public static final int KEY_CLICK = 14;
+    public static final int KEY_BUTTON_0 = 15;
+    public static final int KEY_BUTTON_1 = 16;
+    public static final int KEY_BUTTON_2 = 17;
+    public static final int KEY_BUTTON_3 = 18;
+    public static final int KEY_BUTTON_4 = 19;
+    public static final int KEY_BUTTON_5 = 20;
+    public static final int KEY_BUTTON_6 = 31;
+    public static final int KEY_BUTTON_7 = 32; // reserve space for 8 buttons, although there are only 4 right now.
 
     public static final int STATUS_OK = 0;
     public static final int STATUS_ERR = 1;
@@ -78,6 +89,46 @@ public class Pebble {
     public static final int TEXT_ALIGNMENT_LEFT = 0;
     public static final int TEXT_ALIGNMENT_CENTER = 1;
     public static final int TEXT_ALIGNMENT_RIGHT = 2;
+
+    public static final String ACTION_BUTTON_PRESS = "org.biro.pebble.Pebble.BUTTON_PRESS";
+    public static final int BUTTON_BACK = 0;
+    public static final int BUTTON_UP = 1;
+    public static final int BUTTON_SELECT = 2;
+    public static final int BUTTON_DOWN = 3;
+    public static final int BUTTON_NUM_BUTTONS=4;
+
+    public static final int BUTTON_WANT_SINGLE_CLICK = 1;
+    public static final int BUTTON_WANT_REPEATED_MASK = 0xFFF << 8;
+    public static final int BUTTON_WANT_MULTI_MASK = 0xF << 1;
+    public static final int BUTTON_LONG_CLICK_MASK = 0xFFF << 20;
+    public static final int LONG_CLICK_DOWN = 1 << 17;
+    public static final int LONG_CLOCK_UP = 1 << 18;
+
+    public static final int buttonLongClickDelay(int ms) {
+        return (ms & 0xfff) << 20;
+    }
+
+    public static final int buttonMultiMax(int count) {
+        return (count & 0xf) << 1;
+    }
+
+    public static final int buttonRepeatSpeed(int ms) {
+        return (ms & 0xfff) << 8;
+    }
+
+    //#define CLICK_DATA(r, c, b) (((r)?1:0) << 16 | (c << 8) | (b) )
+    //#define LONG_CLICK_DATA(t, r,c,b) ((t) | ((r)?1:0) << 16 | (c << 8) | (b) )
+    public static final int clickButton(int data) {
+        return data & 0xff;
+    }
+
+    public static final int clickCount(int data) {
+        return (data & 0xff) >> 8;
+    }
+
+    public static final boolean clickRepeating(int data) {
+        return (data & 0x10000) == 1;
+    }
 
     public interface PebbleFinishedCallback {
         public void processIncoming(Context ctx, int tid,
@@ -118,6 +169,19 @@ public class Pebble {
                             }
                             ack(ctx, ptid);
                             int tid = pebbleDictionary.getUnsignedIntegerAsLong(KEY_TRANSACTION_ID).intValue();
+                            if (pebbleDictionary.contains(Pebble.KEY_CLICK)) {
+                                int data = pebbleDictionary.getUnsignedIntegerAsLong(KEY_CLICK).intValue();
+                                Intent i = new Intent(ACTION_BUTTON_PRESS);
+                                i.putExtra("Button", Pebble.clickButton(data));
+                                i.putExtra("Repeating", Pebble.clickRepeating(data));
+                                i.putExtra("Count", Pebble.clickCount(data));
+                                i.putExtra("TimeStamp", tid);
+                                ctx.sendBroadcast(i);
+                                tid = 0;
+                                // tid = 0 is invalid, so we can fall through and
+                                // we won't be processing anything.
+                            }
+
                             PacketInfo info = getPebbleFinished(tid);
                             removeInflight(tid);
                             if (info != null && info.w != null) {
@@ -189,7 +253,11 @@ public class Pebble {
     }
 
     synchronized static int nextTransactionID() {
-        return ++transaction_id;
+        int tid;
+        do {
+            tid = ++transaction_id;
+        } while (tid == 0);
+        return tid;
     }
 
     private void nack(Context ctx, int transaction_id) {

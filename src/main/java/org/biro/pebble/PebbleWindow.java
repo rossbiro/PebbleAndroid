@@ -41,13 +41,33 @@ public class PebbleWindow {
     private final int STATE_NONE = 0;
     private final int STATE_UPDATING = 1;
     private final int STATE_PUSH = 2;
-
+    private final int STATE_REQUEST_CLICKS = 3;
 
     private final Stack<Integer> stateStack = new Stack<>();
 
     private int wh = -1;
     private Pebble parent;
     private List<PebbleLayer> layers = new ArrayList<>();
+
+    // Not all button actions
+    // can be used at once.
+    // e.g. single click and
+    // repeated click.
+    private class ButtonInfo {
+        boolean wantSingleClick = false;
+        short repeated_rate = 0; // in ms.
+        short long_click_time = 0; //in ms
+        byte multi_click_count = 0;
+    }
+
+    private ButtonInfo[] clicks;
+
+    {
+        clicks = new ButtonInfo[Pebble.BUTTON_NUM_BUTTONS];
+        for (int i = 0; i < Pebble.BUTTON_NUM_BUTTONS; ++i) {
+            clicks[i] = new ButtonInfo();
+        }
+    }
 
     // get's a window handle.
     private void connect(Context ctx) {
@@ -126,6 +146,10 @@ public class PebbleWindow {
                 push(ctx);
                 break;
 
+            case STATE_REQUEST_CLICKS:
+                requestClicks(ctx);
+                break;
+
             default:
                 Log.e(TAG, "Unknown state");
                 break;
@@ -191,5 +215,51 @@ public class PebbleWindow {
 
     public void setParent(Pebble p) {
         parent = p;
+    }
+
+    public void setClickRequests(int button) {
+        clicks[button].wantSingleClick = true;
+    }
+
+    private int clicksToInt(ButtonInfo bi) {
+        int cr = 0;
+        if (bi.wantSingleClick) {
+            cr |= Pebble.BUTTON_WANT_SINGLE_CLICK;
+        }
+        cr |= Pebble.buttonMultiMax(bi.multi_click_count);
+        cr |= Pebble.buttonLongClickDelay(bi.long_click_time);
+        cr |= Pebble.buttonRepeatSpeed(bi.repeated_rate);
+        return cr;
+    }
+
+    public void requestClicks(Context ctx) {
+        if (parent.isBusy()) {
+            addState(STATE_REQUEST_CLICKS);
+            return;
+        }
+
+        if (wh < 0 ) {
+            connect(ctx);
+            addState(STATE_REQUEST_CLICKS);
+            return;
+        }
+
+        PebbleDictionary pd = new PebbleDictionary();
+        pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_REQUEST_CLICKS);
+        for (int i = 0; i < Pebble.BUTTON_NUM_BUTTONS; ++i) {
+            int cr = clicksToInt(clicks[i]);
+            if (cr == 0) {
+                continue;
+            }
+            pd.addUint32(Pebble.KEY_BUTTON_0 + i, cr);
+        }
+        send(ctx, pd, new Pebble.PebbleFinishedCallback() {
+            @Override
+            public void processIncoming(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
+                // XXXXX FIXME: handle error codes
+                updateStatus(ctx);
+            }
+        });
+
     }
 }
