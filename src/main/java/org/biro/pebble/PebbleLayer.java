@@ -30,4 +30,5 @@ import android.content.Context;
 public interface  PebbleLayer {
     abstract boolean changed();
     boolean update(Context ctx, PebbleWindow pw);
+    void clearHandle();
 }

@@ -8,7 +8,9 @@ import android.util.SparseArray;
 import com.getpebble.android.kit.PebbleKit;
 import com.getpebble.android.kit.util.PebbleDictionary;
 
+import java.util.HashSet;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -44,6 +46,10 @@ public class Pebble {
     public static final int FUNC_APPLY_ATTRIBUTES = 3;
     public static final int FUNC_PUSH_WINDOW = 4;
     public static final int FUNC_REQUEST_CLICKS = 5;
+    public static final int FUNC_GET_DICTIONARY_BY_ID = 6;
+    public static final int FUNC_GET_TEXT_LAYER_BY_ID = 7;
+    public static final int FUNC_CLEAR_WINDOW = 8;
+    public static final int FUNC_RESET_WINDOWS = 9;
 
     public static final int KEY_STATUS = 0;
     public static final int KEY_API_VERSION = 1;
@@ -68,6 +74,7 @@ public class Pebble {
     public static final int KEY_BUTTON_5 = 20;
     public static final int KEY_BUTTON_6 = 31;
     public static final int KEY_BUTTON_7 = 32; // reserve space for 8 buttons, although there are only 4 right now.
+    public static final int KEY_ID = 33;
 
     public static final int STATUS_OK = 0;
     public static final int STATUS_ERR = 1;
@@ -75,6 +82,7 @@ public class Pebble {
     public static final int STATUS_STOPPED = 3;
 
     public static final int ROOT_WINDOW_HANDLE = 0;
+    public static final int ROOT_WINDOW_ID = 1;
 
     public static final int ENOMEM = 1;
     public static final int ENOWINDOW = 2;
@@ -129,6 +137,8 @@ public class Pebble {
     public static final boolean clickRepeating(int data) {
         return (data & 0x10000) == 1;
     }
+
+    private Set<PebbleWindow> children = new HashSet<>();
 
     public interface PebbleFinishedCallback {
         public void processIncoming(Context ctx, int tid,
@@ -277,6 +287,14 @@ public class Pebble {
         }
     }
 
+    void addChild(PebbleWindow pw) {
+        children.add(pw);
+    }
+
+    void removeChild(PebbleWindow pw) {
+        children.remove(pw);
+    }
+
     public void sendMessage(Context ctx,  PebbleFinishedCallback w, PebbleDictionary data) {
         int tid = nextTransactionID();
 
@@ -294,6 +312,20 @@ public class Pebble {
             PebbleKit.sendDataToPebbleWithTransactionId(ctx, mPebbleUUID,
                     inflight.get(tid).data, tid);
         }
+    }
+
+    public void pebbleConnected(Context ctx) {
+        if (connected == false) {
+            connected = true;
+            for (PebbleWindow pw: children) {
+                pw.update(ctx);
+
+            }
+        }
+    }
+
+    public void pebbleDisconnected(Context ctx) {
+        connected = false;
     }
 
     public void registerHandlers(Context ctx) {

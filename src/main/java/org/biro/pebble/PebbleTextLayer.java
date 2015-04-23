@@ -49,6 +49,20 @@ public class PebbleTextLayer implements PebbleLayer {
     String text="";
     boolean text_changed = false;
 
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    private int id = 0;
+
+    public void clearHandle() {
+        tlh = -1;
+    }
+
     private void updateChanged(PebbleDictionary pd) {
         if (pd.contains(Pebble.KEY_ATTRIBUTE_FG_COLOR)) {
             fg_changed = !(pd.getUnsignedIntegerAsLong(Pebble.KEY_ATTRIBUTE_FG_COLOR).intValue() == fg);
@@ -70,7 +84,7 @@ public class PebbleTextLayer implements PebbleLayer {
             try {
                 text_changed = !pd.getString(Pebble.KEY_ATTRIBUTE_TEXT).equals(text);
             } catch (Exception e) {
-                Log.d(TAG, "Text comare exception: " + e.getMessage());
+                Log.d(TAG, "Text comapre exception: " + e.getMessage());
             }
             try {
                 byte[] bytes = pd.getBytes(Pebble.KEY_ATTRIBUTE_TEXT);
@@ -87,26 +101,55 @@ public class PebbleTextLayer implements PebbleLayer {
         return fg_changed || bg_changed || font_changed || alignment_changed || text_changed;
     }
 
+    private void connect(final PebbleWindow pw, Context ctx) {
+        PebbleDictionary pd;
+        if (tlh < 0) {
+            if (id != 0) {
+                pd = new PebbleDictionary();
+                pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_GET_TEXT_LAYER_BY_ID);
+                pd.addUint32(Pebble.KEY_ID, id);
+                pw.send(ctx, pd, new Pebble.PebbleFinishedCallback() {
+                    @Override
+                    public void processIncoming(Context ctx, int tid, PebbleDictionary resp,
+                                                PebbleDictionary req) {
+                        if (resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS) == Pebble.STATUS_ERR) {
+                            pw.handleError(ctx, tid, req, resp);
+                            return;
+                        }
+                        tlh = resp.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
+                        pw.updateStatus(ctx);
+                    }
+                });
+
+            } else {
+                pd = new PebbleDictionary();
+                pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_NEW_TEXT_LAYER);
+                pw.send(ctx, pd, new Pebble.PebbleFinishedCallback() {
+                    @Override
+                    public void processIncoming(Context ctx, int tid, PebbleDictionary resp,
+                                                PebbleDictionary req) {
+                        tlh = resp.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
+                        pw.updateStatus(ctx);
+                    }
+                });
+            }
+        }
+
+
+
+    }
+
     // returns true when we started something and
     // have to wait.
     @Override
     public boolean update(Context ctx, final PebbleWindow pw) {
         PebbleDictionary pd;
         if (tlh < 0) {
-            pd = new PebbleDictionary();
-            pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_NEW_TEXT_LAYER);
-            pw.send(ctx, pd, new Pebble.PebbleFinishedCallback() {
-                @Override
-                public void processIncoming(Context ctx, int tid, PebbleDictionary resp,
-                                            PebbleDictionary req) {
-                    tlh = resp.getUnsignedIntegerAsLong(Pebble.KEY_TEXT_LAYER_ID).intValue();
-                    pw.updateStatus(ctx);
-                }
-            });
+            connect(pw, ctx);
             return true;
         }
 
-        if (!changed()) {
+       if (!changed()) {
             return false;
         }
 

@@ -43,11 +43,25 @@ public class PebbleWindow {
     private final int STATE_PUSH = 2;
     private final int STATE_REQUEST_CLICKS = 3;
 
+    private boolean needReset=false;
+    private boolean needClear=false;
+    private boolean wantClicks=false;
+
     private final Stack<Integer> stateStack = new Stack<>();
 
     private int wh = -1;
     private Pebble parent;
     private List<PebbleLayer> layers = new ArrayList<>();
+
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    private int id = 0;
 
     // Not all button actions
     // can be used at once.
@@ -75,6 +89,25 @@ public class PebbleWindow {
             return;
         }
 
+        if (id != 0) {
+            PebbleDictionary data = new PebbleDictionary();
+            data.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_GET_DICTIONARY_BY_ID);
+            parent.sendMessage(ctx, new Pebble.PebbleFinishedCallback() {
+                @Override
+                public void processIncoming(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
+                    int status = resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS).intValue();
+                    if (status == Pebble.STATUS_ERR) {
+                        Log.e(TAG, "Call Failed" + resp.getUnsignedIntegerAsLong(Pebble.KEY_ERROR_CODE));
+                        handleError(ctx, tid, resp, req);
+                    } else {
+                        wh = resp.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
+                        updateStatus(ctx);
+                    }
+                }
+            }, data);
+            return;
+        }
+
         PebbleDictionary data = new PebbleDictionary();
         data.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_NEW_WINDOW);
         parent.sendMessage(ctx, new Pebble.PebbleFinishedCallback() {
@@ -84,14 +117,20 @@ public class PebbleWindow {
                         int status = res.getUnsignedIntegerAsLong(Pebble.KEY_STATUS).intValue();
                         if (status == Pebble.STATUS_ERR) {
                             Log.e(TAG, "Call Failed" + res.getUnsignedIntegerAsLong(Pebble.KEY_ERROR_CODE));
-                            handleError(res.getUnsignedIntegerAsLong(Pebble.KEY_ERROR_CODE));
+                            handleError(ctx, tid, res, req);
                         } else {
-                            wh = res.getUnsignedIntegerAsLong(Pebble.KEY_WINDOW_ID).intValue();
+                            wh = res.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
                             updateStatus(ctx);
                         }
                     }
                 }, data);
 
+    }
+
+    private void clearState() {
+        synchronized (stateStack) {
+            stateStack.clear();
+        }
     }
 
     private int popState() {
@@ -121,12 +160,21 @@ public class PebbleWindow {
         if (root == null) {
             root = new PebbleWindow();
             root.wh = Pebble.ROOT_WINDOW_HANDLE;
+            root.id = Pebble.ROOT_WINDOW_ID;
         }
         return root;
     }
 
-    private void handleError(long error) {
-        // can't do anything yet.
+    void handleError(Context ctx, int tid, PebbleDictionary req, PebbleDictionary resp) {
+        if (resp.getUnsignedIntegerAsLong(Pebble.KEY_ERROR_CODE) == Pebble.ENOWINDOW) {
+            needReset = true;
+            resetWindows(ctx);
+        } else {
+            needClear = true;
+            clearWindow(ctx);
+        }
+
+
     }
 
     // continues processing status after
@@ -214,7 +262,53 @@ public class PebbleWindow {
     }
 
     public void setParent(Pebble p) {
+        if (parent != null) {
+            parent.removeChild(this);
+        }
         parent = p;
+        parent.addChild(this);
+    }
+
+    public void resetWindows(Context ctx) {
+        needReset = false;
+        PebbleDictionary pd = new PebbleDictionary();
+        pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_RESET_WINDOWS);
+        clearState();
+        addState(STATE_UPDATING);
+        if (wantClicks) {
+            addState(STATE_REQUEST_CLICKS);
+        }
+        parent.sendMessage(ctx, new Pebble.PebbleFinishedCallback() {
+            @Override
+            public void processIncoming(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
+                if (resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS) == Pebble.STATUS_ERR) {
+                    handleError(ctx, tid, resp, req);
+                } else {
+                    needReset = false;
+                    updateStatus(ctx);
+                }
+            }
+        }, pd);
+        wh = -1;
+        for (PebbleLayer pl: layers) {
+            pl.clearHandle();
+        }
+    }
+
+    public void clearWindow(Context ctx) {
+        PebbleDictionary pd = new PebbleDictionary();
+        pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_CLEAR_WINDOW);
+        send(ctx, pd, new Pebble.PebbleFinishedCallback() {
+            @Override
+            public void processIncoming(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
+                if (resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS) == Pebble.STATUS_ERR) {
+                    handleError(ctx, tid, resp, req);
+                } else {
+                    needClear = false;
+                    updateStatus(ctx);
+                }
+            }
+        });
     }
 
     public void setClickRequests(int button) {
@@ -233,6 +327,7 @@ public class PebbleWindow {
     }
 
     public void requestClicks(Context ctx) {
+        wantClicks = true;
         if (parent.isBusy()) {
             addState(STATE_REQUEST_CLICKS);
             return;
