@@ -92,6 +92,7 @@ public class PebbleWindow {
         if (id != 0) {
             PebbleDictionary data = new PebbleDictionary();
             data.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_GET_DICTIONARY_BY_ID);
+            data.addUint32(Pebble.KEY_ID, id);
             parent.sendMessage(ctx, new Pebble.PebbleFinishedCallback() {
                 @Override
                 public void processIncoming(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
@@ -165,16 +166,18 @@ public class PebbleWindow {
         return root;
     }
 
-    void handleError(Context ctx, int tid, PebbleDictionary req, PebbleDictionary resp) {
-        if (resp.getUnsignedIntegerAsLong(Pebble.KEY_ERROR_CODE) == Pebble.ENOWINDOW) {
-            needReset = true;
-            resetWindows(ctx);
-        } else {
-            needClear = true;
-            clearWindow(ctx);
+    void handleError(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
+        int error = resp.getUnsignedIntegerAsLong(Pebble.KEY_ERROR_CODE).intValue();
+        switch (error) {
+            case Pebble.ENOWINDOW:
+                needReset = true;
+                resetWindows(ctx);
+                break;
+            default:
+                needClear = true;
+                clearWindow(ctx);
+                break;
         }
-
-
     }
 
     // continues processing status after
@@ -270,7 +273,10 @@ public class PebbleWindow {
     }
 
     public void resetWindows(Context ctx) {
-        needReset = false;
+        if (parent.isBusy()) {
+            return;
+        }
+
         PebbleDictionary pd = new PebbleDictionary();
         pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_RESET_WINDOWS);
         clearState();
@@ -296,6 +302,9 @@ public class PebbleWindow {
     }
 
     public void clearWindow(Context ctx) {
+        if (parent.isBusy()) {
+            return;
+        }
         PebbleDictionary pd = new PebbleDictionary();
         pd.addUint32(Pebble.KEY_METHOD_ID, Pebble.FUNC_CLEAR_WINDOW);
         send(ctx, pd, new Pebble.PebbleFinishedCallback() {
@@ -351,8 +360,11 @@ public class PebbleWindow {
         send(ctx, pd, new Pebble.PebbleFinishedCallback() {
             @Override
             public void processIncoming(Context ctx, int tid, PebbleDictionary resp, PebbleDictionary req) {
-                // XXXXX FIXME: handle error codes
-                updateStatus(ctx);
+                if (resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS).intValue() != Pebble.STATUS_OK) {
+                    handleError(ctx, tid, resp, req);
+                } else {
+                    updateStatus(ctx);
+                }
             }
         });
 

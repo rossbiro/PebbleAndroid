@@ -60,7 +60,13 @@ public class PebbleTextLayer implements PebbleLayer {
     private int id = 0;
 
     public void clearHandle() {
+
         tlh = -1;
+        //fg_changed = true;
+        //bg_changed = true;
+        //alignment_changed = true;
+        //font_changed = true;
+        //text_changed = true;
     }
 
     private void updateChanged(PebbleDictionary pd) {
@@ -113,7 +119,7 @@ public class PebbleTextLayer implements PebbleLayer {
                     public void processIncoming(Context ctx, int tid, PebbleDictionary resp,
                                                 PebbleDictionary req) {
                         if (resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS) == Pebble.STATUS_ERR) {
-                            pw.handleError(ctx, tid, req, resp);
+                            pw.handleError(ctx, tid, resp, req);
                             return;
                         }
                         tlh = resp.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
@@ -128,8 +134,12 @@ public class PebbleTextLayer implements PebbleLayer {
                     @Override
                     public void processIncoming(Context ctx, int tid, PebbleDictionary resp,
                                                 PebbleDictionary req) {
-                        tlh = resp.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
-                        pw.updateStatus(ctx);
+                        if (resp.getUnsignedIntegerAsLong(Pebble.KEY_STATUS) == Pebble.STATUS_OK) {
+                            tlh = resp.getUnsignedIntegerAsLong(Pebble.KEY_RETURN_VALUE).intValue();
+                            pw.updateStatus(ctx);
+                        } else {
+                            pw.handleError(ctx, tid, resp, req);
+                        }
                     }
                 });
             }

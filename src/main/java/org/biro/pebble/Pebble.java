@@ -2,6 +2,8 @@ package org.biro.pebble;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Handler;
 import android.util.Log;
 import android.util.SparseArray;
 
@@ -72,9 +74,9 @@ public class Pebble {
     public static final int KEY_BUTTON_3 = 18;
     public static final int KEY_BUTTON_4 = 19;
     public static final int KEY_BUTTON_5 = 20;
-    public static final int KEY_BUTTON_6 = 31;
-    public static final int KEY_BUTTON_7 = 32; // reserve space for 8 buttons, although there are only 4 right now.
-    public static final int KEY_ID = 33;
+    public static final int KEY_BUTTON_6 = 21;
+    public static final int KEY_BUTTON_7 = 22; // reserve space for 8 buttons, although there are only 4 right now.
+    public static final int KEY_ID = 23;
 
     public static final int STATUS_OK = 0;
     public static final int STATUS_ERR = 1;
@@ -89,6 +91,7 @@ public class Pebble {
     public static final int ENOLAYER = 3;
     public static final int EINVALID_OP = 4;
     public static final int EINVALID_TRANSACTION = 5;
+    public static final int ENACK_RECEIVED = -1; // never sent.  Synthetic error.
 
     public static final int COLOR_BLACK = 0;
     public static final int COLOR_WHITE = 1;
@@ -111,6 +114,10 @@ public class Pebble {
     public static final int BUTTON_LONG_CLICK_MASK = 0xFFF << 20;
     public static final int LONG_CLICK_DOWN = 1 << 17;
     public static final int LONG_CLOCK_UP = 1 << 18;
+
+    public static final String ACTION_RETRY = "org.biro.pebble.Pebble.ACTION_RETRY";
+
+    private static final int RETRY_DELAY = 2000; // retry every 2 seconds
 
     public static final int buttonLongClickDelay(int ms) {
         return (ms & 0xfff) << 20;
@@ -140,6 +147,8 @@ public class Pebble {
 
     private Set<PebbleWindow> children = new HashSet<>();
 
+    private Handler mUpdateHandler = new Handler();
+
     public interface PebbleFinishedCallback {
         public void processIncoming(Context ctx, int tid,
                                     PebbleDictionary resp, PebbleDictionary req);
@@ -148,10 +157,13 @@ public class Pebble {
     private class PacketInfo {
         PebbleFinishedCallback w;
         PebbleDictionary data;
+        long expires;
 
         PacketInfo(PebbleFinishedCallback w, PebbleDictionary data) {
             this.w = w;
             this.data = data;
+            expires = System.currentTimeMillis() + 10000; // expire in 300ms.
+            // XXXXX FIXME: That should not be hardcoded.
         }
     };
 
@@ -202,6 +214,7 @@ public class Pebble {
                         case STATUS_STARTED:
                             started = true;
                             ack(ctx, ptid);
+                            resetWindows(ctx);
                             return;
 
                         case STATUS_STOPPED:
@@ -222,7 +235,7 @@ public class Pebble {
                 new PebbleKit.PebbleAckReceiver(mPebbleUUID) {
                     @Override
                     public void receiveAck(Context context, int i) {
-
+                        Log.d(TAG, "AckReceived");
                     }
                 };
 
@@ -230,8 +243,10 @@ public class Pebble {
                 new PebbleKit.PebbleNackReceiver(mPebbleUUID) {
                     @Override
                     public void receiveNack(Context context, int i) {
-
+                        Log.d(TAG, "Nack Received.");
+                        nackInflight(context);
                     }
+
                 };
 
 
@@ -246,7 +261,7 @@ public class Pebble {
 
     private void removeInflight(int tid) {
         synchronized (inflight) {
-            inflight.delete(tid);
+            inflight.remove(tid);
         }
     }
 
@@ -270,12 +285,43 @@ public class Pebble {
         return tid;
     }
 
+    private void nackInflight(final Context ctx) {
+        synchronized (inflight) {
+            PebbleDictionary pd = new PebbleDictionary();
+            pd.addUint32(KEY_STATUS, STATUS_ERR);
+            pd.addUint32(KEY_ERROR_CODE, ENACK_RECEIVED);
+            for (int i = 0; i < inflight.size(); ++i) {
+                PacketInfo pi = inflight.valueAt(i);
+                int tid = pi.data.getUnsignedIntegerAsLong(KEY_TRANSACTION_ID).intValue();
+                if (pi.w != null) {
+                    pi.w.processIncoming(ctx, tid, pd, pi.data);
+                }
+            }
+            inflight.clear();
+        }
+        mUpdateHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                Intent i = new Intent();
+                i.setAction(ACTION_RETRY);
+                ctx.sendBroadcast(i);
+            }
+        }, RETRY_DELAY);
+
+    }
+
     private void nack(Context ctx, int transaction_id) {
         PebbleKit.sendNackToPebble(ctx, transaction_id);
     }
 
     private void ack(Context ctx, int transaction_id) {
         PebbleKit.sendAckToPebble(ctx, transaction_id);
+    }
+
+    private void resetWindows(Context ctx) {
+        for (PebbleWindow pw: children) {
+            pw.resetWindows(ctx);
+        }
     }
 
     private final SparseArray<PacketInfo> inflight = new SparseArray<>();
@@ -329,14 +375,24 @@ public class Pebble {
     }
 
     public void registerHandlers(Context ctx) {
-        PebbleKit.registerPebbleConnectedReceiver(ctx, mPebbleReceiver);
-        PebbleKit.registerPebbleDisconnectedReceiver(ctx, mPebbleReceiver);
         PebbleKit.registerReceivedAckHandler(ctx, mPebbleAckReceiver);
         PebbleKit.registerReceivedDataHandler(ctx, mPebbleDataReceiver);
         PebbleKit.registerDataLogReceiver(ctx, mPebbleLogReceiver);
         PebbleKit.registerReceivedNackHandler(ctx, mPebbleNackReceiver);
 
         connected = PebbleKit.isWatchConnected(ctx);
+    }
+
+    public void registerReceivers(Context ctx) {
+        PebbleKit.registerPebbleConnectedReceiver(ctx, mPebbleReceiver);
+        PebbleKit.registerPebbleDisconnectedReceiver(ctx, mPebbleReceiver);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_RETRY);
+        ctx.registerReceiver(mPebbleReceiver, filter);
+    }
+
+    public void unregisterReceivers(Context ctx) {
+        ctx.unregisterReceiver(mPebbleReceiver);
     }
 
     public void start(Context ctx) {
@@ -349,6 +405,12 @@ public class Pebble {
 
     public boolean isBusy() {
         synchronized (inflight) {
+            long now = System.currentTimeMillis();
+            for (int i = 0; i < inflight.size(); ++i ) {
+                if (now  - inflight.valueAt(i).expires >= 0) {
+                    inflight.removeAt(i--);
+                }
+            }
             return (inflight.size() > 0);
         }
     }
